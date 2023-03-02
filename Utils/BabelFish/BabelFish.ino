@@ -289,6 +289,32 @@
 #define sdChipSelectPin 2
 #endif
 
+/*----------------------------------------------------------------------+
+ |      LGT8F328P config - No EEPROM support so no PS/2 keymap          |
+ +----------------------------------------------------------------------*/
+#if defined(ARDUINO_AVR_LARDU_328E)
+#define platform "LGT8F328P"
+
+// Pins for Gigatron (must be on PORTC)
+#define gigatronDataPin  19 // PC5
+#define gigatronLatchPin 18 // PC4
+#define gigatronPulsePin 17 // PC3
+#define gigatronPinToBitMask digitalPinToBitMask // Regular Arduino pin numbers
+
+// Pins for Controller
+#define gameControllerDataPin 16
+#define gameControllerPulsePin 15
+#define gameControllerLatchPin 14
+
+// Link to PC/laptop
+#define hasSerial 1
+
+// SD Card
+#define sdChipSelectPin 10
+#endif
+
+#ifndef ARDUINO_AVR_LARDU_328E
+
 void (*resetFunc)(void) = 0;
 
 /*----------------------------------------------------------------------+
@@ -318,7 +344,7 @@ const struct { const uint8_t *gt1; const char *name; } gt1Files[] =
  |      End config section                                              |
  |                                                                      |
  +----------------------------------------------------------------------*/
-
+#endif
  /*
   *  Bit masks for pins
   */
@@ -360,6 +386,7 @@ const int tinyfont[96] PROGMEM =
  */
 static bool echo = false;
 
+#ifndef ARDUINO_AVR_LARDU_328E
 /*
  *  Non-volatile memory
  */
@@ -382,6 +409,7 @@ extern const uint8_t nrKeymaps; // From in PS2.ino
 
 // Current location for Gt1 transfer from internal storage
 uint8_t *gt1ProgmemLoc;
+#endif
 
 #if sdChipSelectPin >= 0
 // SD card libraries
@@ -414,8 +442,13 @@ void setup()
     gigatronPulseBit = gigatronPinToBitMask(gigatronPulsePin);
 
     // Enable output pin (pins are set to input by default)
+#ifdef ARDUINO_AVR_LARDU_328E
+    PORTC |= gigatronDataBit; // Send 1 when idle
+    DDRC = gigatronDataBit;
+#else
     PORTB |= gigatronDataBit; // Send 1 when idle
     DDRB = gigatronDataBit;
+#endif
 
     // Set pin modes for game controller passthrough
 #if gameControllerDataPin >= 0
@@ -430,15 +463,19 @@ void setup()
     //doVersion();
 #endif
 
+#ifndef ARDUINO_AVR_LARDU_328E
     // Cache for speed
     EEPROM_length = EEPROM.length();
+#endif
 
     // In case we power on together with the Gigatron, this is a
     // good pause to wait for the video loop to have started
     delay(350);
 
+#ifndef ARDUINO_AVR_LARDU_328E
     // Note that it takes 500~750 ms for PS/2 keyboards to boot
     keyboard_setup();
+#endif
 
     prompt();
 }
@@ -652,6 +689,7 @@ void loop()
                 default: break;
             }
         }
+#ifndef ARDUINO_AVR_LARDU_328E
         // TinyBASIC EEPROM saving
         else
         {
@@ -670,6 +708,7 @@ void loop()
                 hasChars = false;
             }
         }
+#endif
     }
 
     // Skip all input during SDCard comms, (from start to close)
@@ -702,6 +741,7 @@ void loop()
     delay(15);
 #endif
 
+#ifndef ARDUINO_AVR_LARDU_328E
     // PS/2 keyboard events
     uint8_t key = keyboard_getState();
     if(key != 255)
@@ -737,6 +777,7 @@ void loop()
             key = keyboard_getState();      // This typically returns the same key for a couple of frames
         }
     }
+#endif
 
     // Commands from upstream USB (PC/laptop)
 #if hasSerial
@@ -763,7 +804,11 @@ bool wakeBrowser()
 {
     critical();
     bool result = sendFirstByte(0);
+#ifdef ARDUINO_AVR_LARDU_328E
+    PORTC |= gigatronDataBit;      // send 1 when idle
+#else
     PORTB |= gigatronDataBit;      // send 1 when idle
+#endif
     nonCritical();
 
     return result;
@@ -785,8 +830,13 @@ bool detectGigatron()
     // Sample the sync signals coming out of the controller port
     while(millis() < timeout)
     {
+#ifdef ARDUINO_AVR_LARDU_328E
+        uint8_t pinc = PINC; // capture SER_PULSE and SER_LATCH at the same time
+        T[(pinc & gigatronLatchBit ? 2 : 0) + (pinc & gigatronPulseBit ? 1 : 0)]++;
+#else
         uint8_t pinb = PINB; // capture SER_PULSE and SER_LATCH at the same time
         T[(pinb & gigatronLatchBit ? 2 : 0) + (pinb & gigatronPulseBit ? 1 : 0)]++;
+#endif
     }
 
     float S = T[0] + T[1] + T[2] + T[3] + .1;     // Avoid zero division (pedantic)
@@ -823,8 +873,10 @@ void doCommand(char line[])
         case 'H': doHelp();                               break;
         case 'R': doReset(arg);                           break;
         case 'L': doLoader();                             break;
+#ifndef ARDUINO_AVR_LARDU_328E
         case 'M': doMapping();                            break;
         case 'P': doProgmemFileTransfer(arg);             break;
+#endif
         case 'U': doTransfer(readNextSerial, askSerial);  break;
         case 'K': doSDFileTransfer(&line[1], true, true); break;
         case 'J': doPrintSDFiles(&line[1]);               break;
@@ -854,24 +906,29 @@ void doVersion()
 {
 #if hasSerial
     Serial.println(F(":Platform=" platform));
+  #ifndef ARDUINO_AVR_LARDU_328E
     Serial.println(F(":EEPROM:"));
     Serial.print(F(": size="));
     Serial.print(EEPROM.length());
+  #endif
     //doEcho(echo);
     Serial.println(F(":'H' help"));
 #endif
 #if 0
-#if hasSerial
+  #if hasSerial
     Serial.println(F(":BabelFish platform=" platform));
     Serial.println(F(":Pins:"));
 #define V(s) #s
 #define Q(s) V(s)
     Serial.println(F(": Gigatron data=" Q(gigatronDataPin) " latch=" Q(gigatronLatchPin) " pulse=" Q(gigatronPulsePin)));
+    #ifndef ARDUINO_AVR_LARDU_328E
     Serial.println(F(": Keyboard clock=" Q(keyboardClockPin) " data=" Q(keyboardDataPin)));
-#if gameControllerDataPin >= 0
+    #endif
+    #if gameControllerDataPin >= 0
     Serial.println(F(": Controller data=" Q(gameControllerDataPin) " latch=" Q(gameControllerLatchPin) " pulse=" Q(gameControllerPulsePin)));
-#endif
+    #endif
 
+    #ifndef ARDUINO_AVR_LARDU_328E
     Serial.println(F(":EEPROM:"));
     Serial.print(F(": size="));
     Serial.print(EEPROM.length());
@@ -885,12 +942,14 @@ void doVersion()
         Serial.print(F(") "));
         Serial.println(gt1Files[i].name);
     }
+    #endif
     //doEcho(echo);
     Serial.println(F(":Type 'H' for help"));
-#endif
+  #endif
 #endif
 }
 
+#ifndef ARDUINO_AVR_LARDU_328E
 // Show keymapping in Loader screen (Loader must be running)
 void doMapping()
 {
@@ -919,6 +978,7 @@ void doMapping()
         pos = renderString(pos, getKeymapName(i));
     }
 }
+#endif
 
 //void doEcho(uint8_t value)
 //{
@@ -938,10 +998,12 @@ void doHelp()
     Serial.println(F(": R        Reset Gigatron"));
     Serial.println(F(": L        Start Loader"));
     Serial.println(F(": M        Show key mapping or menu in Loader screen"));
+#ifndef ARDUINO_AVR_LARDU_328E
     Serial.println(F(": P[<n>]   Transfer object file from PROGMEM slot <n>"));
     Serial.print(F(": P"));     Serial.print(arrayLen(gt1Files) - 1);
     Serial.println(F("       Type saved EEPROM data back into Gigatron"));
     Serial.println(F(":          [Hint: Use '.SAVE' for saving, not 'T'-mode!]"));
+#endif
     Serial.println(F(": U        Transfer object file from USB"));
     Serial.println(F(": K<name>  Transfer from SD"));
     Serial.println(F(": J        List SD"));
@@ -1074,18 +1136,19 @@ void doTerminal()
 #endif
 }
 
+#ifndef ARDUINO_AVR_LARDU_328E
 void doProgmemFileTransfer(int arg)
 {
-#if hasSerial
+  #if hasSerial
     //Serial.println(F(":Sending from PROGMEM"));
-#endif
+  #endif
     if(0 <= arg && arg < arrayLen(gt1Files))
     {
         gt1ProgmemLoc = (uint8_t*)gt1Files[arg].gt1; // Set Location of built-in GT1 file
         doTransfer(readNextProgmem, NULL); // Send GT1 file to Gigatron
     }
 }
-
+#endif
 void doSDFileTransfer(char *filename, bool initGiga, bool serialEnabled)
 {
 #if sdChipSelectPin >= 0
@@ -1239,7 +1302,11 @@ void doSDDirPayload()
     {
         sendBits(payload[i], 8);
     }
+#ifdef ARDUINO_AVR_LARDU_328E
+    PORTC |= gigatronDataBit;      // send 1 when idle
+#else
     PORTB |= gigatronDataBit;      // send 1 when idle
+#endif
     nonCritical();
 }
 
@@ -1349,12 +1416,13 @@ int readNextSerial()
 #endif
 }
 
+#ifndef ARDUINO_AVR_LARDU_328E
 // read next GT1 byte from internal memory
 int readNextProgmem()
 {
     return pgm_read_byte(gt1ProgmemLoc++);
 }
-
+#endif
 // read next GT1 byte from SD card
 int readNextSD()
 {
@@ -1512,14 +1580,18 @@ int nextSerial()
 
 static inline void critical()
 {
+#ifndef ARDUINO_AVR_LARDU_328E
     forbidPs2();
+#endif
     noInterrupts();
 }
 
 static inline void nonCritical()
 {
     interrupts();
+#ifndef ARDUINO_AVR_LARDU_328E
     allowPs2();
+#endif
 }
 
 // Send a 1..256 byte code or data segment into the Gigatron by
@@ -1540,7 +1612,11 @@ void sendGt1Segment(uint16_t address, int len)
 
     // Wait for vPulse to start so we're 100% sure to skip one frame and
     // the checksum resets on the other side. (This is a bit pedantic)
+#ifdef ARDUINO_AVR_LARDU_328E
+    while(PINC & gigatronLatchBit); // ~160 us
+#else
     while(PINB & gigatronLatchBit); // ~160 us
+#endif
 }
 
 // Send execute command
@@ -1569,7 +1645,11 @@ bool sendController(uint8_t value, int n)
     }
     nonCritical();
 
+#ifdef ARDUINO_AVR_LARDU_328E
+    PORTC |= gigatronDataBit; // Send 1 when idle
+#else
     PORTB |= gigatronDataBit; // Send 1 when idle
+#endif
 
     return true;
 }
@@ -1605,12 +1685,35 @@ void sendFrame(uint8_t firstByte, uint8_t len, uint16_t address, uint8_t message
     uint8_t lastByte = -checksum;   // Checksum must come out as 0
     sendBits(lastByte, 8);
     checksum = lastByte;         // Concatenate checksums
+#ifdef ARDUINO_AVR_LARDU_328E
+    PORTC |= gigatronDataBit;    // Send 1 when idle
+#else
     PORTB |= gigatronDataBit;    // Send 1 when idle
+#endif
 }
 
 bool sendFirstByte(uint8_t value)
 {
     // Wait vertical sync NEGATIVE edge to sync with loader
+#ifdef ARDUINO_AVR_LARDU_328E
+    while(~PINC & gigatronLatchBit); // Ensure vSync is HIGH first
+
+    // Send first bit in advance
+    if(value & 128)
+        PORTC |= gigatronDataBit;
+    else
+        PORTC &= ~gigatronDataBit;
+
+    while(PINC & gigatronLatchBit);  // Then wait for vSync to drop
+
+    // Wait for bit transfer at horizontal sync RISING edge. As this is at
+    // the end of a short (3.8 us) pulse following VERY shortly (0.64us) after
+    // vSync drop, this timing is tight. That is the reason that interrupts
+    // must be disabled on the microcontroller (and why 1 MHz isn't enough).
+    while(PINC & gigatronPulseBit);  // Ensure hSync is LOW first
+
+    while(~PINC & gigatronPulseBit); // Then wait for hSync to rise
+#else
     while(~PINB & gigatronLatchBit); // Ensure vSync is HIGH first
 
     // Send first bit in advance
@@ -1628,6 +1731,7 @@ bool sendFirstByte(uint8_t value)
     while(PINB & gigatronPulseBit);  // Ensure hSync is LOW first
 
     while(~PINB & gigatronPulseBit); // Then wait for hSync to rise
+#endif
 
     // Send remaining bits
     return sendBits(value, 7);
@@ -1639,6 +1743,20 @@ bool sendBits(uint8_t value, uint8_t n)
     uint8_t count = 0;
     for(uint8_t bit=1<<(n-1); bit; bit>>=1)
     {
+#ifdef ARDUINO_AVR_LARDU_328E
+        // Send next bit
+        if(value & bit)
+            PORTC |= gigatronDataBit;
+        else
+            PORTC &= ~gigatronDataBit;
+
+        // Wait for bit transfer at horizontal sync POSITIVE edge.
+        while(PINC & gigatronPulseBit);  // Ensure hSync is LOW first
+
+        if(~PINC & gigatronLatchBit)     // While in vPulse count hSync's
+            count++;
+        while(~PINC & gigatronPulseBit); // Then wait for hSync to rise
+#else
         // Send next bit
         if(value & bit)
             PORTB |= gigatronDataBit;
@@ -1651,6 +1769,7 @@ bool sendBits(uint8_t value, uint8_t n)
         if(~PINB & gigatronLatchBit)     // While in vPulse count hSync's
             count++;
         while(~PINB & gigatronPulseBit); // Then wait for hSync to rise
+#endif
     }
 
     checksum += value;
@@ -1697,6 +1816,30 @@ uint8_t waitVSync()
 {
     uint16_t timeout = 0; // 2^16 cycles must give at least 17 ms
 
+#ifdef ARDUINO_AVR_LARDU_328E
+    // Wait vertical sync NEGATIVE edge
+
+    while(~PINC & gigatronLatchBit) // Ensure vSync is HIGH first
+        if(!--timeout)
+            return 0;
+
+    while(PINC & gigatronLatchBit) // Then wait for vSync to drop
+        if(!--timeout)
+            return 0;
+
+    // Now count horizontal sync POSITIVE edges
+    byte count = 0;
+    for(;;)
+    {
+        while(PINC & gigatronPulseBit);  // Ensure hSync is LOW first
+
+        if(PINC & gigatronLatchBit)      // Not in vPulse anymore
+            break;
+        while(~PINC & gigatronPulseBit); // Then wait for hSync to rise
+
+        count += 1;
+    }
+#else
     // Wait vertical sync NEGATIVE edge
 
     while(~PINB & gigatronLatchBit) // Ensure vSync is HIGH first
@@ -1719,6 +1862,7 @@ uint8_t waitVSync()
 
         count += 1;
     }
+#endif
     return count;
 }
 
@@ -1731,6 +1875,7 @@ void sendPulse(uint8_t pin)
     delayMicroseconds(50);
 }
 
+#ifndef ARDUINO_AVR_LARDU_328E
 /*----------------------------------------------------------------------+
  |                                                                      |
  |      EEPROM functions                                                |
@@ -1761,3 +1906,4 @@ void sendSavedFile()
         }
     } while(i < EEPROM.length());        // There may be no space for an EOF symbol
 }
+#endif
