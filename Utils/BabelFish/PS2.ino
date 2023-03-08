@@ -1,3 +1,4 @@
+#ifndef ARDUINO_AVR_LARDU_328E
 
 /*
  *  PS/2 keyboard handling for Babelfish talking to Gigatron
@@ -708,3 +709,4 @@ void keyboard_send(word code)
   while (digitalRead(keyboardClockPin) == 0 || digitalRead(keyboardDataPin) == 0)
     ;
 }
+#endif
